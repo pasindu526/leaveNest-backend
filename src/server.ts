@@ -35,9 +35,10 @@ if (process.env.SMTP_USER && process.env.SMTP_PASS) {
     .catch((err) => console.error("Mailer verification failed:", err));
 }
 
+// Normalize CLIENT_URL to remove trailing slash
+const rawClient = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "");
 app.use(cors({
-  // allow CLIENT_URL to be set in Railway environment variables; fall back to localhost for local dev
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: rawClient,
   methods: ['GET','POST','PUT','DELETE'],
   credentials: true
 }));
@@ -49,6 +50,35 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/leaverequests", leaveRoutes);
 app.use("/api/notifications", notificationRoutes);
+
+// simple health endpoint
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, time: new Date().toISOString(), port: process.env.PORT || 3000 });
+});
+
+// dev helper: print registered routes to stdout
+function listRoutes() {
+  try {
+    const routes: string[] = [];
+    app._router.stack.forEach((layer: any) => {
+      if (layer.route && layer.route.path) {
+        const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
+        routes.push(`${methods} ${layer.route.path}`);
+      } else if (layer.name === "router" && layer.handle && layer.handle.stack) {
+        layer.handle.stack.forEach((l: any) => {
+          if (l.route && l.route.path) {
+            const methods = Object.keys(l.route.methods).join(",").toUpperCase();
+            routes.push(`${methods} ${l.route.path}`);
+          }
+        });
+      }
+    });
+    console.log("Registered routes:\n" + routes.join("\n"));
+  } catch (e) {
+    console.log("Could not list routes:", e);
+  }
+}
+listRoutes();
 
 mongoose
   .connect(process.env.MONGO_URI!)
