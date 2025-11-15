@@ -35,12 +35,13 @@ if (process.env.SMTP_USER && process.env.SMTP_PASS) {
     .catch((err) => console.error("Mailer verification failed:", err));
 }
 
+const rawClient = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "");
 app.use(cors({
-  // allow CLIENT_URL to be set in Railway environment variables; fall back to localhost for local dev
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: rawClient,
   methods: ['GET','POST','PUT','DELETE'],
   credentials: true
 }));
+
 
 app.use(express.json());
 
