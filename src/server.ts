@@ -29,10 +29,10 @@ if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       pass: process.env.SMTP_PASS,
     },
   });
-  transporter
-    .verify()
-    .then(() => console.log("Mailer verified"))
-    .catch((err) => console.error("Mailer verification failed:", err));
+  // transporter
+  //   .verify()
+  //   .then(() => console.log("Mailer verified"))
+  //   .catch((err) => console.error("Mailer verification failed:", err));
 }
 
 const rawClient = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "");
