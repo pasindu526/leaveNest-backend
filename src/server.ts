@@ -36,7 +36,8 @@ if (process.env.SMTP_USER && process.env.SMTP_PASS) {
 }
 
 app.use(cors({
-  origin: 'http://localhost:5173', // frontend URL
+  // allow CLIENT_URL to be set in Railway environment variables; fall back to localhost for local dev
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
   methods: ['GET','POST','PUT','DELETE'],
   credentials: true
 }));
@@ -52,9 +53,8 @@ app.use("/api/notifications", notificationRoutes);
 mongoose
   .connect(process.env.MONGO_URI!)
   .then(() => {
-    app.listen(process.env.PORT, () =>
-      console.log(`Server running on port ${process.env.PORT}`)
-    );
+    const port = Number(process.env.PORT) || 3000;
+    app.listen(port, () => console.log(`Server running on port ${port}`));
 
     // --- HOURLY REMINDER CRON JOB ---
     cron.schedule("0 * * * *", async () => {
