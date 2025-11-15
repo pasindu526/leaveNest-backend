@@ -12,10 +12,16 @@ import { Notification } from "./models/Notification";
 import User from "./models/User";
 import nodemailer from "nodemailer";
 
+import morgan from "morgan";
+import "express-async-errors"; // helps bubble async errors to the global handler
+
 const cors = require('cors');
 
 dotenv.config();
 const app = express();
+
+// add request logging (helps reproduce the failing request)
+app.use(morgan("dev"));
 
 // Nodemailer transporter (optional, configured via .env)
 let transporter: nodemailer.Transporter | null = null;
@@ -50,6 +56,24 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/leaverequests", leaveRoutes);
 app.use("/api/notifications", notificationRoutes);
+
+// Global error handler (must come after routes)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Unhandled error:", err && err.stack ? err.stack : err);
+  const status = err && err.status ? err.status : 500;
+  const payload: any = { error: err && err.message ? err.message : "Internal Server Error" };
+  if (process.env.NODE_ENV !== "production") payload.stack = err && err.stack ? err.stack : undefined;
+  res.status(status).json(payload);
+});
+
+// catch unhandled rejections and uncaught exceptions (log and exit in production)
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+  // In production you may want to process.exit(1)
+});
 
 mongoose
   .connect(process.env.MONGO_URI!)
