@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Notification } from '../models/Notification';
 import User from '../models/User';
 import nodemailer from 'nodemailer';
+import { sendMail } from "../utils/mailer";
 
 // Configure environment variables
 dotenv.config();
@@ -140,9 +141,28 @@ async function notifyRequesterOfStatusChange(leave: any, approverId: any, newSta
               `- Dates: ${Array.isArray(leave.dates) ? leave.dates.join(", ") : leave.dates || ""}`,
               `- Reason: ${leave.reason || ""}`,
             ].join("\n"),
+            html: [
+              `<p>${message}</p>`,
+              `<p><strong>Request details:</strong></p>`,
+              `<ul>`,
+              `<li>Type: ${leave.leaveType || ""}</li>`,
+              `<li>Dates: ${Array.isArray(leave.dates) ? leave.dates.join(", ") : leave.dates || ""}</li>`,
+              `<li>Reason: ${leave.reason || ""}</li>`,
+              `</ul>`,
+            ].join(""),
           };
-          // send in background (this function is already async and wrapped in try/catch)
-          await activeTransporter.sendMail(mailOptions);
+          // send via wrapper (SendGrid preferred); errors are caught by outer try/catch
+          try {
+            await sendMail({
+              from: mailOptions.from,
+              to: mailOptions.to,
+              subject: mailOptions.subject,
+              text: mailOptions.text,
+              html: mailOptions.html,
+            });
+          } catch (e) {
+            console.error("Failed sending status email (wrapper):", e);
+          }
         }
       } catch (emailErr) {
         console.error("Failed to send status email to requester", emailErr);
@@ -252,17 +272,17 @@ router.post('/', upload.single("proofDocument"), async (req: Request, res: Respo
               ].join("\n"),
             };
 
-            // send in background so failures/timeouts don't block the response
+            // send in background via sendMail wrapper (prefers SendGrid, falls back to nodemailer)
             (async () => {
-              const activeTransporter = (global as any).transporter as nodemailer.Transporter | null;
-              if (!activeTransporter) {
-                console.log("SMTP not configured — email not sent. Mail options:", mailOptions);
-                return;
-              }
               try {
-                await activeTransporter.sendMail(mailOptions);
-              } catch (emailErr) {
-                console.error("Failed to send admin email (background):", targetAdmin._id, emailErr);
+                await sendMail({
+                  from: mailOptions.from,
+                  to: mailOptions.to,
+                  subject: mailOptions.subject,
+                  text: mailOptions.text,
+                });
+              } catch (err) {
+                console.error("Background email error (admin):", err);
               }
             })();
           }
@@ -369,31 +389,30 @@ router.put('/:id/status', async (req: Request, res: Response) => {
 
     const approverId = (req as any).user?._id?.toString() || req.body.approverId || null;
 
+    if (req.body.status === "Approved") {
+      await updateLeaveBalance(updated.user.toString(), updated);
+    }
+
+    // save approver on the leave record when available (approver is admin._id)
     if (approverId) {
       updated.approver = approverId;
       await updated.save();
     }
 
-    // fallback to saved approver on the leave
+    // final fallback: use updated.approver if approverId wasn't provided
     const finalApproverId = approverId || (updated.approver ? (updated.approver._id || updated.approver) : null);
 
-    await notifyRequesterOfStatusChange(updated, finalApproverId, status);
+    if (req.body.status) {
+      try {
+        await notifyRequesterOfStatusChange(updated, finalApproverId, req.body.status);
+      } catch (e) {
+        console.error('Failed to notify requester:', e);
+      }
+    }
 
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
-  }
-});
-
-// Get leave requests for a specific user (employee)
-router.get('/my/:userId', async (req: Request, res: Response) => {
-  try {
-    const userId = req.params.userId;
-    if (!userId) return res.status(400).json({ error: "User ID required" });
-    const leaves = await LeaveRequest.find({ user: userId }).sort({ createdAt: -1 });
-    res.json(leaves);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch leave requests" });
   }
 });
 
