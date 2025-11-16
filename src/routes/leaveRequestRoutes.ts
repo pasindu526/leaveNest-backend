@@ -17,7 +17,7 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER) {
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true",
+    secure: process.env.SMTP_SECURE === "false",
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -25,7 +25,8 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER) {
   });
 }
 
-const ENCRYPTION_KEY = process.env.DOC_ENCRYPTION_KEY!.padEnd(32, "0").slice(0, 32); 
+// use a safe fallback so missing env doesn't throw at module load
+const ENCRYPTION_KEY = (process.env.DOC_ENCRYPTION_KEY || "").padEnd(32, "0").slice(0, 32);
 const IV_LENGTH = 16;
 
 // Encryption helpers
@@ -140,7 +141,7 @@ async function notifyRequesterOfStatusChange(leave: any, approverId: any, newSta
         const activeTransporter = transporter ?? nodemailer.createTransport({
           host: process.env.SMTP_HOST,
           port: Number(process.env.SMTP_PORT || 587),
-          secure: process.env.SMTP_SECURE === "true",
+          secure: process.env.SMTP_SECURE === "false",
           auth: {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
@@ -250,7 +251,7 @@ router.post('/', upload.single("proofDocument"), async (req: Request, res: Respo
             createdAt: new Date(),
           });
 
-          // send email to this admin (if transporter configured)
+          // prepare mail options (do NOT await sendMail on the main request path)
           const adminEmail = (targetAdmin as any).email;
           if (adminEmail) {
             const mailOptions = {
@@ -269,15 +270,19 @@ router.post('/', upload.single("proofDocument"), async (req: Request, res: Respo
                 `View in admin panel to approve or reject.`,
               ].join("\n"),
             };
-            if (transporter) {
+
+            // send in background so failures/timeouts don't block the response
+            (async () => {
+              if (!transporter) {
+                console.log("SMTP not configured — email not sent. Mail options:", mailOptions);
+                return;
+              }
               try {
                 await transporter.sendMail(mailOptions);
               } catch (emailErr) {
-                console.error("Failed to send admin email", targetAdmin._id, emailErr);
+                console.error("Failed to send admin email (background):", targetAdmin._id, emailErr);
               }
-            } else {
-              console.log("SMTP not configured — email not sent. Mail options:", mailOptions);
-            }
+            })();
           }
         }
       } catch (err) {
@@ -287,6 +292,7 @@ router.post('/', upload.single("proofDocument"), async (req: Request, res: Respo
       console.warn("No admin found to notify for department:", userDepartment);
     }
 
+    // send response before any potentially slow background work
     res.status(201).json(request);
   } catch (err) {
     console.error("LEAVE REQUEST ERROR:", err);
