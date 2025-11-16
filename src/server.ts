@@ -36,12 +36,28 @@ if (process.env.SMTP_USER && process.env.SMTP_PASS) {
 }
 
 const rawClient = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "");
-app.use(cors({
-  origin: rawClient,
-  methods: ['GET','POST','PUT','DELETE'],
-  credentials: true
-}));
-
+app.use(
+  cors({
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin) return callback(null, true); // server-to-server or same-origin
+      const normalizedConfigured = rawClient.replace(/\/+$/, "");
+      try {
+        // allow exact configured origin
+        if (origin === normalizedConfigured) return callback(null, true);
+        const u = new URL(origin);
+        // allow main Netlify domain and any preview subdomains like <hash>--leavenest.netlify.app
+        if (u.hostname === "leavenest.netlify.app" || u.hostname.endsWith(".leavenest.netlify.app")) {
+          return callback(null, true);
+        }
+      } catch (e) {
+        // fallthrough to deny
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
