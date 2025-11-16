@@ -11,20 +11,6 @@ import nodemailer from 'nodemailer';
 // Configure environment variables
 dotenv.config();
 
-// Nodemailer transporter (shared). If SMTP not configured transporter stays null.
-let transporter: nodemailer.Transporter | null = null;
-if (process.env.SMTP_HOST && process.env.SMTP_USER) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "false",
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-}
-
 // use a safe fallback so missing env doesn't throw at module load
 const ENCRYPTION_KEY = (process.env.DOC_ENCRYPTION_KEY || "").padEnd(32, "0").slice(0, 32);
 const IV_LENGTH = 16;
@@ -137,32 +123,27 @@ async function notifyRequesterOfStatusChange(leave: any, approverId: any, newSta
     const senderEmail = approverUser?.email || process.env.NO_REPLY_EMAIL;
     if (recipientEmail && senderEmail) {
       try {
-        // use shared transporter when configured, otherwise create a temporary one
-        const activeTransporter = transporter ?? nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT || 587),
-          secure: process.env.SMTP_SECURE === "false",
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        });
-
-        const mailOptions = {
-          from: `${approverName || "AIOH Admin"} <${senderEmail}>`,
-          to: recipientEmail,
-          subject: `Leave request ${newStatus}`,
-          text: [
-            message,
-            "",
-            `Request details:`,
-            `- Type: ${leave.leaveType || ""}`,
-            `- Dates: ${Array.isArray(leave.dates) ? leave.dates.join(", ") : leave.dates || ""}`,
-            `- Reason: ${leave.reason || ""}`,
-          ].join("\n"),
-        };
-
-        await activeTransporter.sendMail(mailOptions);
+        // use verified global transporter only; do not create new transports here
+        const activeTransporter = (global as any).transporter as nodemailer.Transporter | null;
+        if (!activeTransporter) {
+          console.log("SMTP not available; skipping status email to", recipientEmail);
+        } else {
+          const mailOptions = {
+            from: `${approverName || "AIOH Admin"} <${senderEmail}>`,
+            to: recipientEmail,
+            subject: `Leave request ${newStatus}`,
+            text: [
+              message,
+              "",
+              `Request details:`,
+              `- Type: ${leave.leaveType || ""}`,
+              `- Dates: ${Array.isArray(leave.dates) ? leave.dates.join(", ") : leave.dates || ""}`,
+              `- Reason: ${leave.reason || ""}`,
+            ].join("\n"),
+          };
+          // send in background (this function is already async and wrapped in try/catch)
+          await activeTransporter.sendMail(mailOptions);
+        }
       } catch (emailErr) {
         console.error("Failed to send status email to requester", emailErr);
       }
@@ -273,12 +254,13 @@ router.post('/', upload.single("proofDocument"), async (req: Request, res: Respo
 
             // send in background so failures/timeouts don't block the response
             (async () => {
-              if (!transporter) {
+              const activeTransporter = (global as any).transporter as nodemailer.Transporter | null;
+              if (!activeTransporter) {
                 console.log("SMTP not configured — email not sent. Mail options:", mailOptions);
                 return;
               }
               try {
-                await transporter.sendMail(mailOptions);
+                await activeTransporter.sendMail(mailOptions);
               } catch (emailErr) {
                 console.error("Failed to send admin email (background):", targetAdmin._id, emailErr);
               }

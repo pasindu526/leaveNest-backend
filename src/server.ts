@@ -149,3 +149,37 @@ mongoose
      });
    })
    .catch((err) => console.log(err));
+
+// create and verify transporter but do NOT crash if verification fails
+async function initMailer() {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+    console.log("SMTP not configured, skipping mailer init.");
+    (global as any).transporter = null;
+    return;
+  }
+
+  const tmp = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: (process.env.SMTP_SECURE || "false") === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 5000,
+  });
+
+  try {
+    await tmp.verify();
+    (global as any).transporter = tmp;
+    console.log("SMTP transporter verified and ready.");
+  } catch (err) {
+    (global as any).transporter = null;
+    console.error("SMTP transporter unavailable — continuing without email. Error:", err && (err as any).message ? (err as any).message : err);
+  }
+}
+
+// call after process/env and app are ready (eg. after mongoose connect or right after app.listen)
+initMailer();
