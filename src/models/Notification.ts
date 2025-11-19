@@ -4,7 +4,8 @@ export interface INotification extends Document {
   notification_id: string;
   recipient: Types.ObjectId;
   sender?: Types.ObjectId;
-  type: 'leave_submitted' | 'leave_approved' | 'leave_rejected' | 'general';
+  // include 'reminder' for cron-generated reminders
+  type: 'leave_submitted' | 'leave_approved' | 'leave_rejected' | 'general' | 'reminder';
   message: string;
   status: 'unread' | 'read';
   isRead?: boolean;
@@ -17,7 +18,8 @@ const notificationSchema = new Schema<INotification>({
   sender: { type: Schema.Types.ObjectId, ref: 'User' },
   type: {
     type: String,
-    enum: ['leave_submitted', 'leave_approved', 'leave_rejected', 'general'],
+    // added 'reminder' so cron-created notifications validate
+    enum: ['leave_submitted', 'leave_approved', 'leave_rejected', 'general', 'reminder'],
     required: true
   },
   message: { type: String, required: true },
@@ -31,3 +33,4 @@ const notificationSchema = new Schema<INotification>({
 }, { timestamps: true });
 
 export const Notification = mongoose.model<INotification>('Notification', notificationSchema);
+export default Notification;
